@@ -106,12 +106,6 @@ class SQLiteJSONField(TextField):
         return self.dumps(value)
 
     def python_value(self, value: Optional[Any]) -> Any:
-        """
-        * dict/list/int/float/bool → как есть
-        * bytes → decode → try loads → {}
-        * str   → try loads → {}
-        * иначе → {}
-        """
         if value is None:
             return {}
         if isinstance(value, (dict, list, int, float, bool)):
@@ -121,23 +115,31 @@ class SQLiteJSONField(TextField):
             try:
                 return self.loads(txt)
             except Exception:
+                # если строка пришла в кавычках ("foo") → убираем их,
+                # иначе возвращаем {}
+                txt = txt.strip()
+                if len(txt) >= 2 and txt[0] == txt[-1] == '"':
+                    return txt[1:-1]
                 return {}
 
         if isinstance(value, (bytes, bytearray)):
             return _try_load(value.decode("utf-8", errors="ignore"))
-
         if isinstance(value, str):
             return _try_load(value)
-
         return {}
 
     # ——— Query-helpers ———
 
     def json_extract(self, path: str) -> peewee.Expression:
         """
-        Возвращает plain-text значение по JSON-пути (без кавычек).
+        Возвращает JSON_QUOTE(json_extract(...))::TEXT
+
+        Благодаря JSON_QUOTE значение всегда валидный JSON-литерал:
+        ─ '"yes"'   → python_value распарсит в 'yes';
+        ─ '123'     → int 123;
+        ─ 'null'    → None.
         """
-        return fn.json_extract(self, path).cast("TEXT")
+        return fn.JSON_QUOTE(fn.JSON_EXTRACT(self, path)).cast("TEXT")
 
     def contains_key(self, path: str) -> peewee.Expression:
         """WHERE json_extract(col, path) IS NOT NULL"""
@@ -176,18 +178,6 @@ class SQLiteJSONField(TextField):
                 raise ValueError("Invalid JSON") from e
         raise TypeError("Expected dict or JSON string")
 
-    # ——— DDL helper ———
-
-    def ddl_check_valid(self) -> str:
-        """
-        Возвращает строку «json_valid(<column>)».
-        """
-        if not _check_json1(None):          # ← всегда передаём аргумент
-            raise RuntimeError("SQLite собран без JSON1")
-        raw = self.db_column               # может быть str или Column-объект
-        col = raw if isinstance(raw, str) else self.name
-        return f"json_valid({col})"
-
 
 # -----------------------------------------------------------------------------
 # 3. Utility: JSON-путь → индекс
@@ -212,7 +202,7 @@ def create_json_index(
 
     db = model._meta.database
     table = model._meta.table_name
-    col = getattr(field, "column_name", None) or field.name
+    col = getattr(field, "db_column", None) or field.name
 
     safe = path.lstrip("$").replace(".", "_").replace("[", "_").replace("]", "")
     idx = name or f"{table}_{field.name}_{safe}_idx"
