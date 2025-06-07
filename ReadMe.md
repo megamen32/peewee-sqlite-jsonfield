@@ -1,26 +1,26 @@
 # peewee-sqlite-jsonfield
 
-Расширение для ORM [Peewee](http://docs.peewee-orm.com/) с поддержкой работы с `JSONField` в SQLite.
+Extension for the [Peewee](http://docs.peewee-orm.com/) ORM with `JSONField` support in SQLite.
 
-- ✅ Полностью совместим с SQLite и модулем `json1`
-- ✅ Простой интерфейс: как `dict`, только с SQL-поддержкой
-- ✅ Поддержка индексов по JSON-путям
-- ✅ Расширенные методы: `.json_extract()`, `.contains_key()` и т.д.
-- ✅ Поддержка `pydantic` и кастомных сериализаторов
-- ✅ Поддержка кастомных названий колонок (`db_column`)
-- ✅ Гарантия, что поле содержит **валидный JSON** при включённом `CHECK`
+- ✅ Fully compatible with SQLite and the `json1` module
+- ✅ Simple interface: behaves like a `dict` but with SQL support
+- ✅ Support for indexes on JSON paths
+- ✅ Extended methods: `.json_extract()`, `.contains_key()`, etc.
+- ✅ Integration with `pydantic` and custom serializers
+- ✅ Custom column names (`db_column`) supported
+- ✅ Guarantees field contains **valid JSON** when `CHECK` is enabled
 
 ---
 
-## Установка
+## Installation
 
 ```bash
 pip install peewee-sqlite-jsonfield
-````
+```
 
 ---
 
-## Минимальный пример
+## Minimal example
 
 ```python
 from peewee import Model, SqliteDatabase
@@ -44,20 +44,20 @@ print(doc.meta["user"]["name"])        # => 'Alice'
 
 ---
 
-## Почему `SQLiteJSONField` лучше `TextField`?
+## Why is `SQLiteJSONField` better than `TextField`?
 
-Обычный `TextField` не умеет:
+A regular `TextField` cannot:
 
-* Проверять, что внутри валидный JSON
-* Выполнять SQL-запросы по вложенным полям (`WHERE json_extract(...)`)
-* Создавать JSON-индексы
-* Работать с Pydantic
+* Validate that the value is proper JSON
+* Perform SQL queries on nested fields (`WHERE json_extract(...)`)
+* Create JSON indexes
+* Work with Pydantic
 
-А `SQLiteJSONField` умеет всё это. Он использует `json1`-расширение SQLite, которое доступно по умолчанию в Python 3.9+.
+`SQLiteJSONField` can do all of this. It uses SQLite's `json1` extension which is available by default in Python 3.9+.
 
 ---
 
-## Поддержка запросов по JSON
+## Querying JSON
 
 ```python
 # WHERE meta->'$.user.name' == 'Alice'
@@ -69,11 +69,11 @@ doc = (
 )
 ```
 
-> Возвращает Python-значение: `'Alice'`, а не `"Alice"` или `'"Alice"'`.
+> Returns the Python value `'Alice'`, not "Alice" or `'"Alice"'`.
 
 ---
 
-## Проверка, что ключ существует
+## Checking if a key exists
 
 ```python
 # WHERE json_type(json_extract(meta, '$.user.name')) IS NOT NULL
@@ -82,7 +82,7 @@ docs = Doc.select().where(Doc.meta.contains_key('$.user.name'))
 
 ---
 
-## Создание индекса по JSON-пути
+## Creating an index on a JSON path
 
 ```python
 from peewee_sqlite_jsonfield import create_json_index
@@ -90,7 +90,7 @@ from peewee_sqlite_jsonfield import create_json_index
 create_json_index(Doc, Doc.meta, '$.user.name')
 ```
 
-### С кастомным именем и уникальностью:
+### With a custom name and uniqueness:
 
 ```python
 create_json_index(Doc, Doc.meta, '$.user.name', name='idx_name', unique=True)
@@ -98,9 +98,9 @@ create_json_index(Doc, Doc.meta, '$.user.name', name='idx_name', unique=True)
 
 ---
 
-## Автоматическая проверка валидности JSON
+## Automatic JSON validity check
 
-Поле можно использовать в `CHECK`:
+The field can be used in a `CHECK` constraint:
 
 ```python
 class Doc(Model):
@@ -115,7 +115,7 @@ class Doc(Model):
 
 ---
 
-## Кастомные сериализаторы
+## Custom serializers
 
 ```python
 import json
@@ -132,14 +132,14 @@ class Doc(Model):
 
 ---
 
-## Null-значения
+## Null handling
 
-* Если в БД `NULL`, а `default=dict` → будет возвращено `{}`.
-* Если явно задано `meta=None` и `null_to_empty=False` → будет возвращено `None`.
+* If the DB value is `NULL` and `default=dict` → `{}` is returned.
+* If explicitly set to `meta=None` and `null_to_empty=False` → `None` is returned.
 
 ---
 
-## Поддержка Pydantic
+## Pydantic support
 
 ```python
 from pydantic import BaseModel, ValidationError
@@ -147,53 +147,54 @@ from pydantic import BaseModel, ValidationError
 class MyModel(BaseModel):
     meta: dict
 
-m = MyModel(meta={"x": 1})  # проходит
-MyModel(meta="oops")        # вызывает ValidationError
+m = MyModel(meta={"x": 1})  # passes
+MyModel(meta="oops")        # raises ValidationError
 ```
 
 ---
 
-## Работа с именем колонки
+## Working with column name
 
 ```python
 class Doc(Model):
-    data = SQLiteJSONField(db_column="meta_data")  # колонка будет называться meta_data
+    data = SQLiteJSONField(db_column="meta_data")  # column name will be meta_data
 ```
 
-Методы `ddl_check_valid` и `create_json_index` учитывают `db_column` автоматически.
+Methods `ddl_check_valid` and `create_json_index` automatically take `db_column` into account.
 
 ---
 
-## Совместимость
+## Compatibility
 
 * Python 3.7+
 * Peewee 3.14+
-* SQLite 3.9+ (должен быть собран с `json1` — это стандартно в Python 3.9+)
+* SQLite 3.9+ (should be built with `json1` — standard in Python 3.9+)
 
 ---
 
-## Тесты
+## Tests
 
 ```bash
 pytest
 ```
 
-Полностью покрыто:
+Test coverage includes:
 
-* Кастомные сериализаторы
-* Обработка мусора
-* Индексация
-* Вложенные ключи
-* Обход кавычек (`"yes"` → `yes`)
-* Проверка JSON1
+* Custom serializers
+* Garbage collection
+* Indexing
+* Nested keys
+* Quote unwrapping (`"yes"` → `yes`)
+* JSON1 check
 
 ---
 
-## TODO / Планы
+## TODO / Plans
 
-* [ ] Поддержка `update(..., {field.set(...): ...})`
-* [ ] Дополнительные выражения: `@>`, `->`, `#>` как в Postgres
-* [ ] Интеграция с Alembic (миграции с DDL CHECK)
+* [ ] Support `update(..., {field.set(...): ...})`
+* [ ] Additional expressions: `@>`, `->`, `#>` like in Postgres
+* [ ] Integration with Alembic (migrations with DDL CHECK)
+
 ---
 
 ## License
