@@ -106,40 +106,50 @@ class SQLiteJSONField(TextField):
         return self.dumps(value)
 
     def python_value(self, value: Optional[Any]) -> Any:
+        """
+        * dict/list/int/float/bool → как есть
+        * bytes → decode → try loads → {}
+        * str   → try loads → {}
+        * иначе → {}
+        """
         if value is None:
             return {}
         if isinstance(value, (dict, list, int, float, bool)):
             return value
+
+        def _try_load(txt: str) -> Any:
+            try:
+                return self.loads(txt)
+            except Exception:
+                return {}
+
         if isinstance(value, (bytes, bytearray)):
-            try:
-                return self.loads(value.decode("utf-8"))
-            except Exception:
-                return {}
+            return _try_load(value.decode("utf-8", errors="ignore"))
+
         if isinstance(value, str):
-            try:
-                # всегда пытаем загрузить JSON
-                return self.loads(value)
-            except Exception:
-                return {}
+            return _try_load(value)
+
         return {}
 
     # ——— Query-helpers ———
 
     def json_extract(self, path: str) -> peewee.Expression:
         """
-        Возвращает JSON_QUOTE(JSON_EXTRACT(...)) AS TEXT,
-        чтобы SELECT возвращал валидный JSON-подобный текст.
+        Возвращает plain-text значение по JSON-пути (без кавычек).
         """
-        # JSON_QUOTE оборачивает строку/число в валидную JSON-строку, e.g. '"yes"'
-        return fn.JSON_QUOTE(fn.JSON_EXTRACT(self, path)).cast("TEXT")
+        return fn.json_extract(self, path).cast("TEXT")
 
     def contains_key(self, path: str) -> peewee.Expression:
-        """
-        WHERE json_valid(col)=1 AND json_type(json_extract(col, path)) IS NOT NULL
-        """
-        return (fn.json_valid(self) == 1) & (
-            fn.json_type(fn.json_extract(self, path)) >> None
-        )
+        """WHERE json_extract(col, path) IS NOT NULL"""
+        return fn.json_extract(self, path) >> None
+
+    # ---------- DDL helper ----------
+    def ddl_check_valid(self) -> str:
+        if not _check_json1(None):
+            raise RuntimeError("SQLite собран без JSON1")
+        col = getattr(self, "column_name", None) or self.name
+        return f"json_valid({col})"
+
 
     def path_eq(self, path: str, value: Any) -> peewee.Expression:
         """WHERE json_extract(col, path) = value"""
@@ -170,11 +180,12 @@ class SQLiteJSONField(TextField):
 
     def ddl_check_valid(self) -> str:
         """
-        Возвращает выражение для CHECK: "json_valid(<column>)"
+        Возвращает строку «json_valid(<column>)».
         """
-        if not _check_json1(None):
-            raise RuntimeError("SQLite без JSON1; json_valid недоступен")
-        col = self.db_column or self.name
+        if not _check_json1(None):          # ← всегда передаём аргумент
+            raise RuntimeError("SQLite собран без JSON1")
+        raw = self.db_column               # может быть str или Column-объект
+        col = raw if isinstance(raw, str) else self.name
         return f"json_valid({col})"
 
 
@@ -185,6 +196,9 @@ class _Idx(NamedTuple):
     name: str
 
 
+# ----------------------------------------
+# 3. Utility: JSON-path → индекс
+# ----------------------------------------
 def create_json_index(
     model: type[peewee.Model],
     field: SQLiteJSONField,
@@ -193,21 +207,18 @@ def create_json_index(
     unique: bool = False,
     name: Optional[str] = None,
 ) -> _Idx:
-    """
-    Делает CREATE [UNIQUE] INDEX IF NOT EXISTS ... ON table(json_extract(...));
-    """
     if not _check_json1(None):
-        raise RuntimeError("SQLite без JSON1; json_extract недоступен")
+        raise RuntimeError("SQLite без JSON1")
 
     db = model._meta.database
     table = model._meta.table_name
-    col = field.db_column or field.name
+    col = getattr(field, "column_name", None) or field.name
+
     safe = path.lstrip("$").replace(".", "_").replace("[", "_").replace("]", "")
     idx = name or f"{table}_{field.name}_{safe}_idx"
-    uniq_sql = "UNIQUE " if unique else ""
-    sql = (
-        f'CREATE {uniq_sql}INDEX IF NOT EXISTS "{idx}" '
+    uniq = "UNIQUE " if unique else ""
+    db.execute_sql(
+        f'CREATE {uniq}INDEX IF NOT EXISTS "{idx}" '
         f'ON "{table}" (json_extract("{col}", "{path}"));'
     )
-    db.execute_sql(sql)
     return _Idx(idx)
