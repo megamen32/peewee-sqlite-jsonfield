@@ -7,7 +7,7 @@ from peewee import Model, SqliteDatabase
 from peewee_sqlite_jsonfield import (
     SQLiteJSONField,
     create_json_index,
-    JSON1_AVAILABLE,
+    JSON1_AVAILABLE, _check_json1,
 )
 
 
@@ -187,17 +187,6 @@ def test_custom_dumps_loads_are_used():
     # проверяем python_value
     d2 = Doc.get(Doc.id == d.id)
     assert d2.meta == {"unpacked": True}
-# tests/test_sqlite_jsonfield_additional.py
-import pytest
-from peewee import Model, SqliteDatabase
-
-from peewee_sqlite_jsonfield import (
-    SQLiteJSONField,
-    create_json_index,
-    JSON1_AVAILABLE,
-    _check_json1,
-)
-
 
 def test_integer_float_bool_and_list_roundtrip():
     db = SqliteDatabase(":memory:")
