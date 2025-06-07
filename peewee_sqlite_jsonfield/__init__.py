@@ -132,18 +132,20 @@ class SQLiteJSONField(TextField):
 
     def json_extract(self, path: str) -> peewee.Expression:
         """
-        Возвращает JSON_QUOTE(json_extract(...))::TEXT
+        Возвращает json_extract(... )::TEXT
 
-        Благодаря JSON_QUOTE значение всегда валидный JSON-литерал:
-        ─ '"yes"'   → python_value распарсит в 'yes';
-        ─ '123'     → int 123;
-        ─ 'null'    → None.
+        Значение будет приведено к типу TEXT. Функция возвращает
+        «сырое» значение из JSON-документа без обёртки JSON_QUOTE,
+        поэтому строки возвращаются без кавычек.
         """
-        return fn.JSON_QUOTE(fn.JSON_EXTRACT(self, path)).cast("TEXT")
+        col = self.column  # Column, не Field — поэтому python_value не применяется
+        # coerce(False) на всякий случай отключает преобразования
+        return fn.JSON_EXTRACT(col, path).cast("TEXT").coerce(False)
 
     def contains_key(self, path: str) -> peewee.Expression:
         """WHERE json_extract(col, path) IS NOT NULL"""
-        return fn.json_extract(self, path) >> None
+        col = self.column
+        return fn.json_extract(col, path).is_null(False).coerce(False)
 
     # ---------- DDL helper ----------
     def ddl_check_valid(self) -> str:
