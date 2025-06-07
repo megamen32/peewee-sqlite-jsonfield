@@ -163,6 +163,36 @@ class SQLiteJSONField(TextField):
         """Для UPDATE: json_set(col, path, value)"""
         return fn.json_set(self, path, Value(value))
 
+    # ------------------------------------------------------------------
+    # Experimental: using field.set(path) as the key in ``Model.update``
+    # ------------------------------------------------------------------
+    class _Setter(TextField):
+        """Proxy field used when ``update({field.set(path): value})`` is called."""
+
+        def __init__(self, owner: "SQLiteJSONField", path: str) -> None:
+            super().__init__(_hidden=True)
+            self._owner = owner
+            self._path = path
+            self.model = owner.model
+            self.name = owner.name
+
+        @property
+        def column(self) -> peewee.Column:
+            return self._owner.column
+
+        def __hash__(self) -> int:  # noqa: D401 - simple wrapper
+            return hash((self._owner, self._path))
+
+        def __sql__(self, ctx: peewee.Context) -> peewee.Context:
+            return ctx.sql(self._owner.column)
+
+        def to_value(self, value: Any) -> peewee.Expression:
+            return self._owner.set_expr(self._path, value)
+
+    def set(self, path: str) -> "SQLiteJSONField._Setter":
+        """Вернуть прокси-объект для ``update({field.set(path): value})``."""
+        return SQLiteJSONField._Setter(self, path)
+
     # ——— Pydantic ———
 
     @classmethod

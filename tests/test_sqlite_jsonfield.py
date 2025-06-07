@@ -117,6 +117,24 @@ def test_set_expr_update():
     assert d2.meta.get("count") == 5
 
 
+def test_update_using_set_shortcut():
+    db = SqliteDatabase(":memory:")
+
+    class Doc(Model):
+        meta = SQLiteJSONField(default=dict)
+
+        class Meta:
+            database = db
+
+    db.create_tables([Doc])
+    d = Doc.create(meta={})
+
+    Doc.update({Doc.meta.set('$.num'): 7}).where(Doc.id == d.id).execute()
+
+    d2 = Doc.get(Doc.id == d.id)
+    assert d2.meta.get("num") == 7
+
+
 def test_create_json_index_and_pragmas():
     db = SqliteDatabase(":memory:")
     class Doc(Model):
